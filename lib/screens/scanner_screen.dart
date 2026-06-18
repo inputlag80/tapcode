@@ -12,10 +12,15 @@ class ScannerScreen extends StatefulWidget {
 class _ScannerScreenState extends State<ScannerScreen> {
   bool _hasPermission = false;
   bool _isLoading = true;
+  bool _torchOn = false;
+  bool _codeDetected = false; // для подсветки рамки
+
   final MobileScannerController _controller = MobileScannerController(
     formats: const [BarcodeFormat.all],
     autoStart: true,
     facing: CameraFacing.back,
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    detectionTimeoutMs: 50,
   );
 
   @override
@@ -82,6 +87,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   Future<void> _toggleTorch() async {
     await _controller.toggleTorch();
+    setState(() {
+      _torchOn = !_torchOn;
+    });
   }
 
   @override
@@ -92,7 +100,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
         backgroundColor: Colors.black,
         actions: [
           IconButton(
-            icon: const Icon(Icons.flash_on),
+            icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off),
             onPressed: _toggleTorch,
             tooltip: 'Включить/выключить фонарик',
           ),
@@ -103,32 +111,71 @@ class _ScannerScreenState extends State<ScannerScreen> {
           : _hasPermission
               ? Stack(
                   children: [
-                    // Сканер – без child, просто занимает всё пространство
                     MobileScanner(
                       controller: _controller,
                       onDetect: (capture) {
                         final List<Barcode> barcodes = capture.barcodes;
-                        for (var barcode in barcodes) {
+                        if (barcodes.isNotEmpty) {
+                          final barcode = barcodes.first;
+                          // Подсвечиваем рамку
+                          if (!_codeDetected) {
+                            setState(() {
+                              _codeDetected = true;
+                            });
+                          }
+                          // Возвращаем результат
                           if (barcode.rawValue != null) {
                             Navigator.pop(context, barcode.rawValue);
-                            return;
+                          }
+                        } else {
+                          if (_codeDetected) {
+                            setState(() {
+                              _codeDetected = false;
+                            });
                           }
                         }
                       },
-                    ),
-                    // Зелёная рамка в центре
-                    Center(
-                      child: Container(
-                        width: 250,
-                        height: 250,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: Colors.greenAccent,
-                            width: 3,
+                      overlayBuilder: (context, constraints) {
+                        return Center(
+                          child: Container(
+                            width: 250,
+                            height: 250,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: _codeDetected
+                                    ? Colors.greenAccent
+                                    : Colors.white54,
+                                width: _codeDetected ? 3 : 2,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: _codeDetected
+                                  ? [
+                                      const BoxShadow(
+                                        color: Colors.greenAccent,
+                                        blurRadius: 30,
+                                        spreadRadius: 5,
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                            child: _codeDetected
+                                ? const Center(
+                                    child: Icon(
+                                      Icons.check_circle,
+                                      color: Colors.greenAccent,
+                                      size: 50,
+                                    ),
+                                  )
+                                : const Center(
+                                    child: Icon(
+                                      Icons.crop_free,
+                                      color: Colors.white54,
+                                      size: 60,
+                                    ),
+                                  ),
                           ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
+                        );
+                      },
                     ),
                     // Подсказка внизу
                     Positioned(
@@ -142,9 +189,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
                             color: Colors.black54,
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: const Text(
-                            'Наведите на код в рамке',
-                            style: TextStyle(color: Colors.white, fontSize: 16),
+                          child: Text(
+                            _codeDetected
+                                ? '✅ Код найден!'
+                                : 'Наведите на код (QR, DataMatrix, EAN-13)',
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
                           ),
                         ),
                       ),
