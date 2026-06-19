@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'screens/list_screen.dart';
-import 'screens/settings_screen.dart';
 import 'settings/settings_manager.dart';
 
 void main() {
@@ -16,37 +15,26 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final SettingsManager _settings = SettingsManager();
-  ThemeMode _themeMode = ThemeMode.dark;
-  Locale _locale = const Locale('ru', 'RU');
-  bool _isLoading = true;
+  final SettingsManager _settings = SettingsManager.instance;
 
   @override
   void initState() {
     super.initState();
-    _loadSettings();
+    _settings.addListener(_onSettingsChanged);
   }
 
-  Future<void> _loadSettings() async {
-    final theme = await _settings.getTheme();
-    final language = await _settings.getLanguage();
-    setState(() {
-      _themeMode = theme == 'dark' ? ThemeMode.dark : ThemeMode.light;
-      _locale = Locale(language, language.toUpperCase());
-      _isLoading = false;
-    });
+  @override
+  void dispose() {
+    _settings.removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() {
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const MaterialApp(
-        home: Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-      );
-    }
-
     return MaterialApp(
       title: 'Шпора кассира',
       theme: ThemeData.light().copyWith(
@@ -59,8 +47,8 @@ class _MyAppState extends State<MyApp> {
         scaffoldBackgroundColor: Colors.black,
         appBarTheme: const AppBarTheme(backgroundColor: Colors.black),
       ),
-      themeMode: _themeMode,
-      locale: _locale,
+      themeMode: _settings.themeMode,
+      locale: _settings.locale,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
