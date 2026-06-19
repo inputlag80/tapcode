@@ -20,14 +20,13 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'products.db');
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    // Таблица товаров
     await db.execute('''
       CREATE TABLE products(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +43,6 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_barcode ON products(barcode)');
     await db.execute('CREATE INDEX idx_category ON products(category)');
 
-    // Таблица событий
     await db.execute('''
       CREATE TABLE events(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,6 +55,16 @@ class DatabaseHelper {
     ''');
     await db.execute('CREATE INDEX idx_type ON events(type)');
     await db.execute('CREATE INDEX idx_timestamp ON events(timestamp)');
+
+    // Новая таблица для истории сканирований
+    await db.execute('''
+      CREATE TABLE scan_history(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        found INTEGER NOT NULL
+      )
+    ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -71,6 +79,18 @@ class DatabaseHelper {
     if (oldVersion < 4) {
       try {
         await db.execute('ALTER TABLE events ADD COLUMN user TEXT');
+      } catch (_) {}
+    }
+    if (oldVersion < 5) {
+      try {
+        await db.execute('''
+          CREATE TABLE scan_history(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            found INTEGER NOT NULL
+          )
+        ''');
       } catch (_) {}
     }
   }
@@ -93,7 +113,6 @@ class DatabaseHelper {
       );
     }
     int id = await db.insert('products', newProduct.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
-    // Логируем добавление
     await _insertEvent('add', productId: id);
     return id;
   }
@@ -105,7 +124,6 @@ class DatabaseHelper {
 
   Future<int> deleteProduct(int id) async {
     Database db = await database;
-    // Получим название товара для логирования (необязательно)
     List<Map<String, dynamic>> result = await db.query('products', where: 'id = ?', whereArgs: [id]);
     String title = result.isNotEmpty ? result.first['title'] : '';
     await _insertEvent('delete', productId: id);
@@ -182,7 +200,7 @@ class DatabaseHelper {
       'type': type,
       'product_id': productId,
       'query': query,
-      'user': '', // можно позже заполнять именем кассира
+      'user': '',
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
   }
@@ -191,7 +209,6 @@ class DatabaseHelper {
     await _insertEvent('view', productId: productId);
   }
 
-  // Получение истории событий
   Future<List<Map<String, dynamic>>> getEvents({int limit = 100}) async {
     final db = await database;
     List<Map<String, dynamic>> events = await db.rawQuery('''
@@ -256,12 +273,14 @@ class DatabaseHelper {
     final db = await database;
     List<Map<String, dynamic>> products = await db.query('products');
     List<Map<String, dynamic>> events = await db.query('events');
+    List<Map<String, dynamic>> scanHistory = await db.query('scan_history');
 
     Map<String, dynamic> data = {
       'version': 1,
       'exportedAt': DateTime.now().toIso8601String(),
       'products': products,
       'events': events,
+      'scanHistory': scanHistory,
     };
     return jsonEncode(data);
   }
@@ -270,23 +289,20 @@ class DatabaseHelper {
     final db = await database;
     Map<String, dynamic> data = jsonDecode(jsonString);
     List products = data['products'] ?? [];
-    // events не импортируем, чтобы избежать конфликтов ID
-    // Можно импортировать только товары
 
     await db.transaction((txn) async {
-      // Очищаем таблицы
       await txn.delete('events');
+      await txn.delete('scan_history');
       await txn.delete('products');
 
-      // Вставляем товары без старых ID
       for (var productMap in products) {
         productMap.remove('id');
         await txn.insert('products', productMap);
       }
-      // События не импортируем, чтобы не было ссылок на несуществующие ID
     });
   }
-    // Слияние базы: добавляет только новые товары (по штрихкоду), не удаляет существующие
+
+  // ========== Слияние (merge) ==========
   Future<void> mergeProductsFromJson(String jsonString) async {
     final db = await database;
     Map<String, dynamic> data = jsonDecode(jsonString);
@@ -294,7 +310,6 @@ class DatabaseHelper {
 
     await db.transaction((txn) async {
       for (var productMap in products) {
-        // Проверяем, есть ли товар с таким штрихкодом
         String barcode = productMap['barcode'];
         List<Map<String, dynamic>> existing = await txn.query(
           'products',
@@ -302,12 +317,34 @@ class DatabaseHelper {
           whereArgs: [barcode],
         );
         if (existing.isEmpty) {
-          // Если нет – вставляем (удаляем id, чтобы база присвоила новый)
           productMap.remove('id');
           await txn.insert('products', productMap);
         }
-        // Если есть – пропускаем (можно было бы обновить, но оставим как есть)
       }
     });
+  }
+
+  // ========== История сканирований ==========
+  Future<void> addScanHistory(String code, bool found) async {
+    final db = await database;
+    await db.insert('scan_history', {
+      'code': code,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'found': found ? 1 : 0,
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getScanHistory({int limit = 100}) async {
+    final db = await database;
+    return await db.query(
+      'scan_history',
+      orderBy: 'timestamp DESC',
+      limit: limit,
+    );
+  }
+
+  Future<void> clearScanHistory() async {
+    final db = await database;
+    await db.delete('scan_history');
   }
 }
