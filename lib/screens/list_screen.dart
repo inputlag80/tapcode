@@ -89,7 +89,6 @@ class ListScreenState extends State<ListScreen> {
     });
   }
 
-  // ===== Действия =====
   Future<void> _editProduct(BuildContext context, Product product) async {
     final result = await Navigator.push<bool>(
       context,
@@ -103,67 +102,58 @@ class ListScreenState extends State<ListScreen> {
     _refresh();
   }
 
-  // ===== Диалог с QR-кодом =====
+  // ===== ИСПРАВЛЕННЫЙ ДИАЛОГ =====
   void _showBarcodeDialog(BuildContext context, Product product) {
+    final codeType = SettingsManager.instance.codeType;
+    Barcode barcode;
+    switch (codeType) {
+      case SettingsManager.codeTypeQR:
+        barcode = Barcode.qrCode();
+        break;
+      case SettingsManager.codeTypeDataMatrix:
+        barcode = Barcode.dataMatrix();
+        break;
+      default:
+        barcode = Barcode.ean13();
+    }
     showDialog(
       context: context,
-      builder: (dialogContext) => FutureBuilder<String>(
-        future: SettingsManager().getCodeType(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final codeType = snapshot.data!;
-          Barcode barcode;
-          switch (codeType) {
-            case SettingsManager.codeTypeQR:
-              barcode = Barcode.qrCode();
-              break;
-            case SettingsManager.codeTypeDataMatrix:
-              barcode = Barcode.dataMatrix();
-              break;
-            default:
-              barcode = Barcode.ean13();
-          }
-          return AlertDialog(
-            title: Text(product.title),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  padding: const EdgeInsets.all(16),
-                  child: BarcodeWidget(
-                    barcode: barcode,
-                    data: product.barcode,
-                    width: 300,
-                    height: 150,
-                    style: const TextStyle(fontSize: 20, color: Colors.black),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  product.barcode,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Закрыть'),
+      builder: (dialogContext) => AlertDialog(
+        title: Text(product.title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
               ),
-            ],
-          );
-        },
+              padding: const EdgeInsets.all(16),
+              child: BarcodeWidget(
+                barcode: barcode,
+                data: product.barcode,
+                width: 300,
+                height: 150,
+                style: const TextStyle(fontSize: 20, color: Colors.black),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              product.barcode,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Закрыть'),
+          ),
+        ],
       ),
     );
   }
 
-  // ===== Сканер для поиска =====
   Future<void> _scanAndSearch(BuildContext context) async {
     final String? scannedCode = await Navigator.push<String>(
       context,
@@ -172,17 +162,13 @@ class ListScreenState extends State<ListScreen> {
     if (scannedCode == null || scannedCode.isEmpty) return;
 
     _searchController.text = scannedCode;
-    // Загружаем товары по этому коду
     await _loadProducts(scannedCode);
 
-    // Проверяем, найден ли товар
     if (_products.isEmpty) {
-      // Предлагаем создать новый товар
       _showCreateNewProductDialog(context, scannedCode);
     }
   }
 
-  // ===== Диалог создания нового товара из отсканированного кода =====
   void _showCreateNewProductDialog(BuildContext context, String code) {
     showDialog(
       context: context,
@@ -197,8 +183,7 @@ class ListScreenState extends State<ListScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context); // Закрываем диалог
-              // Открываем экран добавления с заполненным штрих-кодом
+              Navigator.pop(context);
               final result = await Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -208,14 +193,12 @@ class ListScreenState extends State<ListScreen> {
                       title: '',
                       tags: '',
                       description: '',
-                      qrCode: null, // можно оставить пустым
+                      qrCode: null,
                     ),
                   ),
                 ),
               );
-              if (result == true) {
-                _refresh();
-              }
+              if (result == true) _refresh();
             },
             child: const Text('Добавить'),
           ),
@@ -263,7 +246,6 @@ class ListScreenState extends State<ListScreen> {
       ),
       body: Column(
         children: [
-          // Панель фильтрации
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4),
             child: Row(
@@ -348,7 +330,6 @@ class ListScreenState extends State<ListScreen> {
               ],
             ),
           ),
-          // Поиск
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: TextField(
@@ -366,7 +347,6 @@ class ListScreenState extends State<ListScreen> {
               onChanged: _onSearchChanged,
             ),
           ),
-          // Список с Pull-to-refresh
           Expanded(
             child: RefreshIndicator(
               onRefresh: _refresh,
