@@ -9,6 +9,7 @@ import 'detail_screen.dart';
 import 'settings_screen.dart';
 import 'statistics_screen.dart';
 import 'history_screen.dart';
+import 'scan_history_screen.dart';
 import 'scanner_screen.dart';
 import 'share_screen.dart';
 import '../settings/settings_manager.dart';
@@ -82,13 +83,7 @@ class ListScreenState extends State<ListScreen> {
     _loadCategories();
   }
 
-  void _onSearchChanged(String value) {
-    if (_debounceTimer?.isActive ?? false) _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-      _loadProducts(value);
-    });
-  }
-
+  // ===== Действия =====
   Future<void> _editProduct(BuildContext context, Product product) async {
     final result = await Navigator.push<bool>(
       context,
@@ -102,7 +97,7 @@ class ListScreenState extends State<ListScreen> {
     _refresh();
   }
 
-  // ===== ИСПРАВЛЕННЫЙ ДИАЛОГ =====
+  // ===== Диалог с QR-кодом =====
   void _showBarcodeDialog(BuildContext context, Product product) {
     final codeType = SettingsManager.instance.codeType;
     Barcode barcode;
@@ -154,6 +149,7 @@ class ListScreenState extends State<ListScreen> {
     );
   }
 
+  // ===== Сканер для поиска =====
   Future<void> _scanAndSearch(BuildContext context) async {
     final String? scannedCode = await Navigator.push<String>(
       context,
@@ -163,6 +159,10 @@ class ListScreenState extends State<ListScreen> {
 
     _searchController.text = scannedCode;
     await _loadProducts(scannedCode);
+    final db = DatabaseHelper();
+
+    // Логируем сканирование
+    await db.addScanHistory(scannedCode, _products.isNotEmpty);
 
     if (_products.isEmpty) {
       _showCreateNewProductDialog(context, scannedCode);
@@ -207,6 +207,14 @@ class ListScreenState extends State<ListScreen> {
     );
   }
 
+  // ===== Обработчик поиска с debounce (для автодополнения) =====
+  void _onSearchChanged(String value) {
+    if (_debounceTimer?.isActive ?? false) _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      // Обновляем список результатов (но оставляем подсказки через Autocomplete)
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -229,6 +237,14 @@ class ListScreenState extends State<ListScreen> {
             ),
           ),
           IconButton(
+            icon: const Icon(Icons.qr_code),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ScanHistoryScreen()),
+            ),
+            tooltip: 'История сканирований',
+          ),
+          IconButton(
             icon: const Icon(Icons.bar_chart),
             onPressed: () => Navigator.push(
               context,
@@ -246,6 +262,7 @@ class ListScreenState extends State<ListScreen> {
       ),
       body: Column(
         children: [
+          // Панель фильтрации
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4),
             child: Row(
@@ -330,23 +347,67 @@ class ListScreenState extends State<ListScreen> {
               ],
             ),
           ),
+          // Автодополнение в поиске
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Поиск...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.qr_code_scanner),
-                  onPressed: () => _scanAndSearch(context),
-                  tooltip: 'Сканировать QR-код для поиска',
-                ),
-                border: const OutlineInputBorder(),
-              ),
-              onChanged: _onSearchChanged,
+            child: Autocomplete<String>(
+              optionsBuilder: (TextEditingValue textEditingValue) async {
+                if (textEditingValue.text.isEmpty) {
+                  return const Iterable<String>.empty();
+                }
+                // Получаем предложения по названиям товаров
+                final db = DatabaseHelper();
+                final products = await db.searchProducts(textEditingValue.text);
+                return products.map((p) => p.title).toList();
+              },
+              onSelected: (String selection) {
+                _searchController.text = selection;
+                _loadProducts(selection);
+              },
+              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                // Связываем контроллер с нашим _searchController
+                controller.addListener(() {
+                  _searchController.text = controller.text;
+                  // Задержка для обновления результатов
+                  if (_debounceTimer?.isActive ?? false) _debounceTimer?.cancel();
+                  _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+                    _loadProducts(controller.text);
+                  });
+                });
+                return TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  decoration: InputDecoration(
+                    hintText: 'Поиск...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.qr_code_scanner),
+                      onPressed: () => _scanAndSearch(context),
+                      tooltip: 'Сканировать QR-код для поиска',
+                    ),
+                    border: const OutlineInputBorder(),
+                  ),
+                );
+              },
+              optionsViewBuilder: (context, onSelected, options) {
+                return Material(
+                  elevation: 4.0,
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: options.length,
+                    itemBuilder: (context, index) {
+                      final option = options.elementAt(index);
+                      return ListTile(
+                        title: Text(option),
+                        onTap: () => onSelected(option),
+                      );
+                    },
+                  ),
+                );
+              },
             ),
           ),
+          // Список товаров
           Expanded(
             child: RefreshIndicator(
               onRefresh: _refresh,
