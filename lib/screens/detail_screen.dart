@@ -4,7 +4,7 @@ import 'package:barcode_widget/barcode_widget.dart';
 import '../models/product.dart';
 import 'add_edit_screen.dart';
 import '../settings/settings_manager.dart';
-import '../database/database_helper.dart'; // импортируем DatabaseHelper
+import '../database/database_helper.dart';
 
 class DetailScreen extends StatefulWidget {
   final Product product;
@@ -22,17 +22,15 @@ class _DetailScreenState extends State<DetailScreen> {
   void initState() {
     super.initState();
     _loadSettings();
-    // Логируем просмотр товара (если id не null)
     if (widget.product.id != null) {
       DatabaseHelper().logViewProduct(widget.product.id!);
     }
   }
 
   Future<void> _loadSettings() async {
-    final settings = SettingsManager();
-    final type = await settings.getCodeType();
+    final settings = SettingsManager.instance;
     setState(() {
-      _codeType = type;
+      _codeType = settings.codeType; // исправлено
       _isLoading = false;
     });
   }
@@ -94,7 +92,6 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               ),
             const SizedBox(height: 16),
-            // Код с белым фоном
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
