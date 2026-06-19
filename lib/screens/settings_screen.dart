@@ -15,40 +15,136 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final SettingsManager _settings = SettingsManager();
-  String _theme = 'dark';
-  String _language = 'ru';
-  String _codeType = SettingsManager.codeTypeEAN13;
-  bool _isLoading = true;
+  final SettingsManager _settings = SettingsManager.instance;
 
   @override
   void initState() {
     super.initState();
-    _loadSettings();
+    // Подписываемся на изменения настроек
+    _settings.addListener(_onSettingsChanged);
   }
 
-  Future<void> _loadSettings() async {
-    final theme = await _settings.getTheme();
-    final language = await _settings.getLanguage();
-    final codeType = await _settings.getCodeType();
-    setState(() {
-      _theme = theme;
-      _language = language;
-      _codeType = codeType;
-      _isLoading = false;
-    });
+  @override
+  void dispose() {
+    _settings.removeListener(_onSettingsChanged);
+    super.dispose();
   }
 
-  // ===== Экспорт базы =====
+  void _onSettingsChanged() {
+    // Просто перестраиваем экран
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Настройки'),
+        backgroundColor: Colors.black,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          ListTile(
+            title: const Text('Тема'),
+            subtitle: Text(_settings.theme == 'dark' ? 'Тёмная' : 'Светлая'),
+            trailing: Switch(
+              value: _settings.theme == 'dark',
+              onChanged: (value) {
+                _settings.saveTheme(value ? 'dark' : 'light');
+              },
+            ),
+          ),
+          const Divider(),
+          ListTile(
+            title: const Text('Язык интерфейса'),
+            subtitle: Text(_settings.language == 'ru' ? 'Русский' : 'English'),
+            trailing: DropdownButton<String>(
+              value: _settings.language,
+              items: const [
+                DropdownMenuItem(value: 'ru', child: Text('Русский')),
+                DropdownMenuItem(value: 'en', child: Text('English')),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  _settings.saveLanguage(value);
+                }
+              },
+            ),
+          ),
+          const Divider(),
+          ListTile(
+            title: const Text('Тип кода по умолчанию'),
+            subtitle: Text(_getCodeTypeName(_settings.codeType)),
+            trailing: DropdownButton<String>(
+              value: _settings.codeType,
+              items: const [
+                DropdownMenuItem(
+                  value: SettingsManager.codeTypeQR,
+                  child: Text('QR-код'),
+                ),
+                DropdownMenuItem(
+                  value: SettingsManager.codeTypeDataMatrix,
+                  child: Text('DataMatrix'),
+                ),
+                DropdownMenuItem(
+                  value: SettingsManager.codeTypeEAN13,
+                  child: Text('EAN-13'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  _settings.saveCodeType(value);
+                }
+              },
+            ),
+          ),
+          const Divider(),
+          ListTile(
+            title: const Text('Резервное копирование'),
+            subtitle: const Text('Экспорт или импорт всей базы данных'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.upload_file, color: Colors.green),
+                  onPressed: _exportDatabase,
+                  tooltip: 'Экспорт',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.file_download, color: Colors.blue),
+                  onPressed: _importDatabase,
+                  tooltip: 'Импорт',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getCodeTypeName(String type) {
+    switch (type) {
+      case SettingsManager.codeTypeQR:
+        return 'QR-код';
+      case SettingsManager.codeTypeDataMatrix:
+        return 'DataMatrix';
+      case SettingsManager.codeTypeEAN13:
+        return 'EAN-13';
+      default:
+        return 'EAN-13';
+    }
+  }
+
+  // ===== Экспорт/импорт (без изменений) =====
   Future<void> _exportDatabase() async {
     try {
       final db = DatabaseHelper();
       final jsonData = await db.exportDatabase();
-
       final tempDir = await getTemporaryDirectory();
       final file = File('${tempDir.path}/tapcode_backup.json');
       await file.writeAsString(jsonData);
-
       await Share.shareXFiles(
         [XFile(file.path)],
         text: 'Резервная копия базы данных "Шпора кассира"',
@@ -62,7 +158,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // ===== Импорт базы =====
   Future<void> _importDatabase() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -70,7 +165,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         allowedExtensions: ['json'],
       );
       if (result == null) return;
-
       final file = File(result.files.single.path!);
       final jsonData = await file.readAsString();
 
@@ -111,140 +205,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SnackBar(content: Text('Ошибка импорта: $e')),
         );
       }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Настройки'),
-        backgroundColor: Colors.black,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Тема
-          ListTile(
-            title: const Text('Тема'),
-            subtitle: Text(_theme == 'dark' ? 'Тёмная' : 'Светлая'),
-            trailing: Switch(
-              value: _theme == 'dark',
-              onChanged: (value) {
-                _settings.saveTheme(value ? 'dark' : 'light');
-                setState(() => _theme = value ? 'dark' : 'light');
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Перезапустите приложение'),
-                    content: const Text('Для применения темы перезапустите приложение вручную.'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('OK'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-          const Divider(),
-          // Язык
-          ListTile(
-            title: const Text('Язык интерфейса'),
-            subtitle: Text(_language == 'ru' ? 'Русский' : 'English'),
-            trailing: DropdownButton<String>(
-              value: _language,
-              items: const [
-                DropdownMenuItem(value: 'ru', child: Text('Русский')),
-                DropdownMenuItem(value: 'en', child: Text('English')),
-              ],
-              onChanged: (value) {
-                if (value != null) {
-                  _settings.saveLanguage(value);
-                  setState(() => _language = value);
-                }
-              },
-            ),
-          ),
-          const Divider(),
-          // Тип кода
-          ListTile(
-            title: const Text('Тип кода по умолчанию'),
-            subtitle: Text(_getCodeTypeName(_codeType)),
-            trailing: DropdownButton<String>(
-              value: _codeType,
-              items: const [
-                DropdownMenuItem(
-                  value: SettingsManager.codeTypeQR,
-                  child: Text('QR-код'),
-                ),
-                DropdownMenuItem(
-                  value: SettingsManager.codeTypeDataMatrix,
-                  child: Text('DataMatrix'),
-                ),
-                DropdownMenuItem(
-                  value: SettingsManager.codeTypeEAN13,
-                  child: Text('EAN-13'),
-                ),
-              ],
-              onChanged: (value) {
-                if (value != null) {
-                  _settings.saveCodeType(value);
-                  setState(() => _codeType = value);
-                }
-              },
-            ),
-          ),
-          const Divider(),
-          // ===== РЕЗЕРВНОЕ КОПИРОВАНИЕ =====
-          ListTile(
-            title: const Text('Резервное копирование'),
-            subtitle: const Text('Экспорт или импорт всей базы данных'),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.upload_file, color: Colors.green),
-                  onPressed: _exportDatabase,
-                  tooltip: 'Экспорт',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.file_download, color: Colors.blue),
-                  onPressed: _importDatabase,
-                  tooltip: 'Импорт',
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'При смене темы или языка требуется перезапуск приложения.',
-            style: TextStyle(color: Colors.grey[600]),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _getCodeTypeName(String type) {
-    switch (type) {
-      case SettingsManager.codeTypeQR:
-        return 'QR-код';
-      case SettingsManager.codeTypeDataMatrix:
-        return 'DataMatrix';
-      case SettingsManager.codeTypeEAN13:
-        return 'EAN-13';
-      default:
-        return 'EAN-13';
     }
   }
 }
